@@ -1,0 +1,24 @@
+/// <reference types="vite-plugin-electron/electron-env" />
+
+declare namespace NodeJS {
+  interface ProcessEnv {
+    /**
+     * The built directory structure
+     *
+     * ```tree
+     * ├─┬─┬ dist
+     * │ │ └── index.html
+     * │ │
+     * │ ├─┬ dist-electron
+     * │ │ ├── main.js
+     * │ │ └── preload.mjs
+     * │
+     * ```
+     */
+    APP_ROOT: string
+    /** /dist/ or /public/ */
+    VITE_PUBLIC: string
+  }
+}
+
+// `window.lyricsOverlay` (exposed in `preload.ts`) is typed in src/types.ts

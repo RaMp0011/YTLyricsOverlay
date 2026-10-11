@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Music Lyrics Bridge",
+  "version": "0.1.0",
+  "description": "Connects YouTube Music playback to the desktop overlay.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt93Suihlaq5JjMNxAliV4z4ngafe6ixJ45S5ez5uiGJ9SIDPKjM7ffIRrysZWjkCvTIywnXBluKt0LQbr/ydE/PZHVxaATfiEzqhJ0x8iavkEU212FFgmiCwh4lmaRYovCHW9Y1bswXYKpIqGhodsHeQTxjirmJJfMRvZ8cf857+l4adv2Lxx6uBINMs2Up+JOCDlaIfN2jWHYU7P6WrNM06MK8NVT1V28FHWh0qPbAkkc0Rje0qf1N0uoUb024lsSa6fHyKIzYlM7LbrvBrY23MKQLyiN58z/YMCKahfRNf41lZKikp898O2T+lJfJxzc/SRBQb+JcBW3b/gss73wIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*"
+  ],
+  "background": {
+    "service_worker": "dist/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://music.youtube.com/*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://music.youtube.com/*"
+      ],
+      "js": [
+        "dist/page.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}
