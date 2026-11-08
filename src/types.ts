@@ -15,7 +15,7 @@ export interface OverlayState {
   locked: boolean;
   /** The cursor is over the window (works in drag regions and while locked). */
   hovered: boolean;
-  /** Shrunk to the pill (cover + title). */
+  /** Shrunk to just the cover (the title slides out on hover). */
   compact: boolean;
 }
 
