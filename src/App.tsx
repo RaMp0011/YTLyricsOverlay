@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { LyricLine, LyricsResult, OverlayState, PlaybackUpdate } from "./types";
 
 // Show each line slightly early so it doesn't land late after IPC and rendering.
@@ -8,8 +8,11 @@ const LYRICS_LEAD_SECONDS = 0.15;
 const LOOKUP_DELAY_MS = 800;
 // Stop estimating forward if updates stop arriving (e.g. the YouTube Music tab was closed).
 const MAX_EXTRAPOLATION_SECONDS = 5;
-// Compact "pill" mode. Durations match the CSS transitions/animations in index.css.
-const PILL_SIZE = { width: 260, height: 56 };
+// Compact mode: just the cover; hovering slides the title out. Sizes and durations match index.css.
+const COMPACT_SIZE = { width: 56, height: 56 };
+// Space around the title while it's showing: padding, the cover, the gap and the border.
+const PEEK_CHROME_WIDTH = 78;
+const MAX_PEEK_WIDTH = 320;
 const SHRINK_MS = 280;
 const EXPAND_MS = 480;
 
@@ -125,6 +128,17 @@ function Vinyl({ artwork, spinning, label }: { artwork: string; spinning: boolea
   );
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Width of `text` rendered in `element`'s font. */
+function textWidth(text: string, element: Element): number {
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context) return 0;
+
+  context.font = getComputedStyle(element).font;
+  return Math.ceil(context.measureText(text).width);
+}
+
 /** Resolves on the next window resize, or after `timeoutMs` if none happens. */
 function nextResize(timeoutMs: number): Promise<void> {
   return new Promise((resolve) => {
@@ -150,9 +164,20 @@ export default function App() {
   const [overControls, setOverControls] = useState(false);
   const [brokenArtwork, setBrokenArtwork] = useState("");
   const [view, setView] = useState<View>("full");
+  // Compact mode: whether the title is slid out, and the widths for the CSS animations.
+  const [peek, setPeek] = useState(false);
+  const [peekWidth, setPeekWidth] = useState(COMPACT_SIZE.width);
+  const [expandFrom, setExpandFrom] = useState(COMPACT_SIZE.width);
   const clock = useRef<PlaybackClock>({ time: 0, receivedAt: 0, paused: true, duration: 0 });
   const progressRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLSpanElement>(null);
   const viewSynced = useRef(false);
+  // Right after shrinking the pointer is still on the cover; only slide the title out once it has left.
+  const peekArmed = useRef(true);
+  const peekTarget = useRef(false);
+  // Bumped by every peek change or expand, so a slower, older one doesn't resize the window afterwards.
+  const peekToken = useRef(0);
 
   useEffect(() => {
     const unsubscribe = window.lyricsOverlay.onPlayback((data) => {
@@ -190,14 +215,46 @@ export default function App() {
       window.lyricsOverlay.onOverlayState((state) => {
         setOverlay(state);
 
-        // After a reload, start in whichever mode the window is already in.
+        // After a reload, start in whichever mode the window is already in (with the title hidden).
         if (!viewSynced.current) {
           viewSynced.current = true;
           setView(state.compact ? "compact" : "full");
+          if (state.compact) void window.lyricsOverlay.setCompact(true, COMPACT_SIZE);
         }
       }),
     []
   );
+
+  // Compact mode: slide the title out while the pointer is over the cover, and back when it leaves.
+  // Opening widens the window first; closing shrinks it after the card has animated back.
+  useEffect(() => {
+    if (view !== "compact") return;
+    if (!overlay.hovered) peekArmed.current = true;
+
+    const open = overlay.hovered && peekArmed.current;
+    if (open === peekTarget.current) return;
+
+    peekTarget.current = open;
+    const token = ++peekToken.current;
+
+    void (async () => {
+      if (open) {
+        const title = titleRef.current;
+        const titleWidth = title ? textWidth(title.textContent ?? "", title) : 0;
+        const width = Math.min(MAX_PEEK_WIDTH, PEEK_CHROME_WIDTH + titleWidth);
+        const resized = nextResize(250);
+
+        setPeekWidth(width);
+        await window.lyricsOverlay.setCompact(true, { width, height: COMPACT_SIZE.height });
+        await resized;
+        if (token === peekToken.current) setPeek(true);
+      } else {
+        setPeek(false);
+        await sleep(SHRINK_MS);
+        if (token === peekToken.current) await window.lyricsOverlay.setCompact(true, COMPACT_SIZE);
+      }
+    })();
+  }, [view, overlay.hovered]);
 
   const trackKey = connected ? `${playback.title}\n${playback.artist}` : "";
   const foundSynced = lyrics?.trackKey === trackKey && lyrics.result.status === "synced";
@@ -232,27 +289,37 @@ export default function App() {
   const result = lyrics?.trackKey === trackKey ? lyrics.result : null;
   const syncedLines = result?.status === "synced" ? result.lines : null;
 
-  // Every frame: move the progress bar directly, and update state (re-render) only when the line or second changes.
+  // Update the line, clock and progress bar only when they change: at the next line or the next whole
+  // second. A per-frame loop kept a CPU core ~60% busy, since every frame of a transparent window is
+  // expensive to draw. Rescheduled on every playback update, which also covers seeking.
   useEffect(() => {
-    let frame = 0;
+    let timer = 0;
 
-    const tick = () => {
+    const update = () => {
+      const { receivedAt, paused, duration } = clock.current;
       const position = estimatePosition(clock.current);
-      const { duration } = clock.current;
+      const index = syncedLines ? findLineIndex(syncedLines, position + LYRICS_LEAD_SECONDS) : -1;
+      const wholeSecond = Math.floor(position);
+
+      setSecond(wholeSecond);
+      setLineIndex(index);
 
       if (progressRef.current) {
-        progressRef.current.style.transform = `scaleX(${duration > 0 ? position / duration : 0})`;
+        progressRef.current.style.transform = `scaleX(${duration > 0 ? wholeSecond / duration : 0})`;
       }
 
-      setSecond(Math.floor(position));
-      setLineIndex(syncedLines ? findLineIndex(syncedLines, position + LYRICS_LEAD_SECONDS) : -1);
+      // Nothing moves while paused, or once updates have stopped arriving.
+      if (paused || (performance.now() - receivedAt) / 1000 >= MAX_EXTRAPOLATION_SECONDS) return;
 
-      frame = requestAnimationFrame(tick);
+      const nextLine = syncedLines?.[index + 1];
+      const untilLine = nextLine ? nextLine.time - LYRICS_LEAD_SECONDS - position : Infinity;
+      const untilSecond = wholeSecond + 1 - position;
+      timer = window.setTimeout(update, Math.max(10, Math.min(untilLine, untilSecond) * 1000));
     };
 
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [syncedLines]);
+    update();
+    return () => clearTimeout(timer);
+  }, [syncedLines, playback]);
 
   let current: string;
   let next = "";
@@ -289,20 +356,29 @@ export default function App() {
     window.lyricsOverlay.setControlsHovered(true);
   };
 
-  // Shrink: animate the card down inside the full window, then shrink the window to the pill.
-  // Expand: grow the window first (the pill stays put in its top-left corner), then animate the card out.
+  // Shrink: animate the card down inside the full window, then shrink the window to the cover.
+  // Expand: grow the window first (the card stays put in its top-left corner), then animate the card out
+  // from whatever width it has now (the cover alone, or with the title showing).
   const toggleCompact = async () => {
     if (view === "full") {
+      peekArmed.current = false;
+      peekTarget.current = false;
       setView("shrinking");
-      await new Promise((resolve) => setTimeout(resolve, SHRINK_MS));
-      await window.lyricsOverlay.setCompact(true, PILL_SIZE);
+      await sleep(SHRINK_MS);
+      await window.lyricsOverlay.setCompact(true, COMPACT_SIZE);
       setView("compact");
     } else if (view === "compact") {
+      peekToken.current++;
+      setExpandFrom(cardRef.current?.getBoundingClientRect().width ?? COMPACT_SIZE.width);
+
       const resized = nextResize(250);
       await window.lyricsOverlay.setCompact(false);
       await resized;
+
+      peekTarget.current = false;
+      setPeek(false);
       setView("expanding");
-      await new Promise((resolve) => setTimeout(resolve, EXPAND_MS));
+      await sleep(EXPAND_MS);
       setView("full");
     }
   };
@@ -314,15 +390,22 @@ export default function App() {
     "overlay",
     connected && "connected",
     playback.paused && "paused",
+    overlay.locked && "locked",
     showControls && "hovering",
     isCompact && "compact",
+    isCompact && peek && "peek",
     view === "expanding" && "expanding",
   ]
     .filter(Boolean)
     .join(" ");
 
+  const sizes = {
+    "--peek-width": `${peekWidth}px`,
+    "--expand-from": `${expandFrom}px`,
+  } as CSSProperties;
+
   return (
-    <main className={classes}>
+    <main className={classes} style={sizes} ref={cardRef}>
       {/* no-referrer: Google's image CDN rejects requests referred from http://localhost (429). */}
       <div className="backdrop" aria-hidden="true">
         {artwork && (
@@ -343,8 +426,8 @@ export default function App() {
           onClick={toggleCompact}
           onMouseEnter={enterControls}
           onMouseLeave={leaveControls}
-          title={isCompact ? "Expand" : "Shrink to pill"}
-          aria-label={isCompact ? "Expand" : "Shrink to pill"}
+          title={isCompact ? "Expand" : "Shrink"}
+          aria-label={isCompact ? "Expand" : "Shrink"}
         >
           {artwork ? (
             <img className="cover" src={artwork} alt="" referrerPolicy="no-referrer" />
@@ -354,7 +437,7 @@ export default function App() {
         </button>
 
         <div className="track-details">
-          <span className="song-title">{playback.title}</span>
+          <span className="song-title" ref={titleRef}>{playback.title}</span>
           <span className="artist">{playback.artist}</span>
         </div>
 

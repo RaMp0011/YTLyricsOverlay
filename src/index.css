@@ -9,9 +9,10 @@
   --chip: rgb(255 255 255 / 12%);
   --chip-hover: rgb(255 255 255 / 24%);
   --brand: linear-gradient(135deg, #7c5cff, #ff5c8a);
-  /* Keep in sync with PILL_SIZE / SHRINK_MS / EXPAND_MS in App.tsx. */
-  --pill-width: 260px;
-  --pill-height: 56px;
+  /* Solid, dark card while locked, so lyrics stay readable over anything behind it. */
+  --locked-bg: rgba(6, 6, 8, 0.411);
+  /* Keep in sync with COMPACT_SIZE / SHRINK_MS / EXPAND_MS in App.tsx. */
+  --compact-size: 56px;
   --shrink-ms: 280ms;
   --expand-ms: 480ms;
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
@@ -52,15 +53,25 @@ body {
   transition:
     width var(--shrink-ms) var(--ease-in-out),
     height var(--shrink-ms) var(--ease-in-out),
-    padding var(--shrink-ms) var(--ease-in-out);
+    padding var(--shrink-ms) var(--ease-in-out),
+    background-color 250ms;
   -webkit-app-region: drag;
 }
 
-/* Blurred album art behind the glass. */
+.overlay.locked {
+  background: var(--locked-bg);
+}
+
+/* Blurred album art behind the glass (faded out while locked). */
 .backdrop {
   position: absolute;
   inset: 0;
   z-index: -1;
+  transition: opacity 250ms;
+}
+
+.locked .backdrop {
+  opacity: 0;
 }
 
 .backdrop img {
@@ -141,6 +152,7 @@ body {
 .song-title {
   font-size: 13px;
   font-weight: 600;
+  transition: opacity 160ms;
 }
 
 .artist {
@@ -175,7 +187,9 @@ body {
   border-radius: 50%;
   background: repeating-radial-gradient(circle, #111114 0 1.1px, #1e1e23 1.1px 2.2px);
   box-shadow: 0 3px 10px rgb(0 0 0 / 45%), inset 0 0 0 1px rgb(255 255 255 / 8%);
-  animation: spin 2.4s linear infinite paused;
+  /* Stepped (8 updates/s) rather than smooth: every frame of a transparent window is expensive,
+     and a smooth spin cost ~60% of a CPU core; Chromium skips redrawing between steps. */
+  animation: spin 3s steps(24) infinite paused;
 }
 
 .vinyl.spinning {
@@ -307,6 +321,10 @@ body {
   animation: fade-in 300ms ease-out;
 }
 
+.locked .next {
+  color: var(--text-dim);
+}
+
 /* Footer: elapsed, progress bar, duration, lyrics source (on hover). */
 .playback-time {
   display: flex;
@@ -342,11 +360,25 @@ body {
   display: inline;
 }
 
-/* Compact mode: just the cover and the title, same rectangle shape. */
+/* Compact mode: just the cover. Hovering ("peek") slides the title out. */
 .overlay.compact {
-  width: var(--pill-width);
-  height: var(--pill-height);
-  padding: 8px 18px 8px 8px;
+  width: var(--compact-size);
+  height: var(--compact-size);
+  padding: 8px;
+}
+
+.overlay.compact.peek {
+  width: var(--peek-width);
+  padding-right: 18px;
+}
+
+.compact:not(.peek) .song-title {
+  opacity: 0;
+}
+
+/* Fade the title in once the card has started to widen. */
+.compact.peek .song-title {
+  transition-delay: 80ms;
 }
 
 .compact .artist {
@@ -377,8 +409,9 @@ body {
 
 @keyframes expand {
   0% {
-    width: var(--pill-width);
-    height: var(--pill-height);
+    /* Starts from the compact card's current width: the cover alone, or with the title showing. */
+    width: var(--expand-from, var(--compact-size));
+    height: var(--compact-size);
     /* Arrives at the edges still moving, so it reads as one hit-and-bounce. */
     animation-timing-function: cubic-bezier(0.3, 0.75, 0.65, 0.92);
   }

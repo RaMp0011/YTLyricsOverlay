@@ -17,7 +17,7 @@ function isSize(value: unknown): value is Size {
   );
 }
 
-/** Tray menu, show/hide hotkey, click-through lock, and compact (pill) mode for the overlay window. */
+/** Tray menu, show/hide hotkey, click-through lock, and compact (cover-only) mode for the overlay window. */
 export function setupOverlayControls(win: BrowserWindow, trayIconPath: string) {
   let locked = false;
   let hovered = false;
@@ -38,14 +38,18 @@ export function setupOverlayControls(win: BrowserWindow, trayIconPath: string) {
   };
 
   // The page animates the card itself; this only resizes the window, keeping the top-left corner fixed.
+  // Also called while already compact, to widen the window while the title slides out on hover.
   const setCompact = (value: boolean, size?: Size) => {
     const bounds = win.getBounds();
 
-    if (value && !compact && size) {
-      fullSize = { width: bounds.width, height: bounds.height };
-      fullMinSize = win.getMinimumSize();
+    if (value && size) {
+      if (!compact) {
+        fullSize = { width: bounds.width, height: bounds.height };
+        fullMinSize = win.getMinimumSize();
+        win.setResizable(false);
+      }
+
       win.setMinimumSize(size.width, size.height);
-      win.setResizable(false);
       win.setBounds({ x: bounds.x, y: bounds.y, ...size });
       compact = true;
     } else if (!value && compact) {

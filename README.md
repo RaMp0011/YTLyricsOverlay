@@ -6,8 +6,9 @@ Synced lyrics for YouTube Music in a small, always-on-top window on your desktop
 
 - Lyrics follow the song line by line
 - Album-art background and a record that spins while music plays
-- Click the cover to shrink the overlay to a small bar; click again to bring it back
-- Tray icon, a show/hide hotkey, and a click-through lock so it never gets in the way
+- Click the cover to shrink the overlay to just the cover (hover it to see the song title); click again to bring it back
+- Tray icon, a show/hide hotkey, and a click-through lock so it never gets in the way (locked, it turns
+  solid dark so the lyrics stay readable over anything)
 
 ## How it works
 
@@ -50,8 +51,8 @@ Open [music.youtube.com](https://music.youtube.com) and play a song. If the tab 
 | Show or hide the overlay | Press **Ctrl+Shift+L**, or click the tray icon |
 | Move it | Drag it |
 | Resize it | Drag an edge |
-| Shrink to a bar / expand | Click the album cover |
-| Let clicks pass through (lock) | Hover and click the lock button, or use the tray menu |
+| Shrink to just the cover / expand | Click the album cover. While shrunk, hover the cover to see the song title. |
+| Let clicks pass through (lock) | Hover and click the lock button, or use the tray menu. The overlay turns solid dark while locked. |
 | Quit | Right-click the tray icon → **Quit** |
 
 ## Build from source
